@@ -15,7 +15,6 @@ if not GOOGLE_API_KEY:
     raise ValueError("GOOGLE_API_KEY environment variable not set. Please set it in your environment.")
 
 # ---------------------- LLM Loader ----------------------
-
 def load_llm_gemini():
     llm = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash",
@@ -24,19 +23,18 @@ def load_llm_gemini():
     return llm
 
 # ---------------------- Prompt Template ----------------------
-
 CUSTOM_PROMPT_TEMPLATE = """
-Use the pieces of information provided in the context to answer the user's question.
-If you don't know the answer, say you don't know. Do not make up an answer.
-Do not provide anything outside the given context.
+You are a medical assistant.
+
+Use ONLY the information provided in the context to answer the user's question accurately.
+If the answer is not in the context, respond with "I do not know."
 
 Context:
 {context}
 
 Question:
 {question}
-
-Start your answer directly, no small talk.
+.
 """
 
 def set_custom_prompt(custom_prompt_template):
@@ -47,14 +45,12 @@ def set_custom_prompt(custom_prompt_template):
     return prompt
 
 # ---------------------- Load FAISS Vector Store ----------------------
-
 DB_FAISS_PATH = "vectorstore/db_faiss"
 embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
 db = FAISS.load_local(DB_FAISS_PATH, embedding_model, allow_dangerous_deserialization=True)
 
 # ---------------------- Build QA Chain ----------------------
-
 llm = load_llm_gemini()
 
 qa_chain = RetrievalQA.from_chain_type(
@@ -68,11 +64,18 @@ qa_chain = RetrievalQA.from_chain_type(
 )
 
 # ---------------------- User Query Execution ----------------------
-
 user_query = input("Write Query Here: ")
 response = qa_chain.invoke({'query': user_query})
 
-print("\nRESULT:\n", response["result"])
-print("\nSOURCE DOCUMENTS:")
+print("\n📌 RESULT:\n")
+print(response["result"])
+
+print("\n📂 SOURCE DOCUMENTS USED:\n")
 for idx, doc in enumerate(response["source_documents"]):
-    print(f"\nDocument {idx + 1}:\n{doc.page_content}\n")
+    # Show the content snippet
+    snippet = doc.page_content[:500].strip().replace('\n', ' ')
+    print(f"[{idx + 1}] {snippet}...")
+    # Show metadata if available
+    if hasattr(doc, 'metadata') and doc.metadata:
+        print(f"Metadata: {doc.metadata}")
+    print("-" * 80)
