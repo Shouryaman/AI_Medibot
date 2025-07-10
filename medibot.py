@@ -88,7 +88,7 @@ def main():
                 st.session_state.messages.append({'role': 'assistant', 'content': result})
 
                 if source_docs:
-                    with st.expander("📂 Show Sources Used in Answer"):
+                    with st.expander("📂 Show More Details and Sources"):
                         for idx, doc in enumerate(source_docs):
                             snippet = doc.page_content[:500].strip().replace('\n', ' ')
                             st.markdown(f"[{idx + 1}] Source Snippet:** {snippet}...")
