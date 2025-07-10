@@ -11,12 +11,14 @@ load_dotenv(find_dotenv())
 
 DB_FAISS_PATH = "vectorstore/db_faiss"
 
+# ----------------- FAISS Loader -----------------
 @st.cache_resource
 def get_vectorstore():
     embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
     db = FAISS.load_local(DB_FAISS_PATH, embedding_model, allow_dangerous_deserialization=True)
     return db
 
+# ----------------- Prompt Setup -----------------
 def set_custom_prompt(custom_prompt_template):
     prompt = PromptTemplate(
         template=custom_prompt_template,
@@ -24,6 +26,7 @@ def set_custom_prompt(custom_prompt_template):
     )
     return prompt
 
+# ----------------- Gemini Loader -----------------
 def load_llm_gemini():
     llm = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash",
@@ -31,19 +34,18 @@ def load_llm_gemini():
     )
     return llm
 
+# ----------------- Main App -----------------
 def main():
-    st.title("Ask Medibot!")
+    st.title("🩺 Ask MediBot!")
 
-    # Load Gemini LLM and FAISS vectorstore
     llm = load_llm_gemini()
-    db = get_vectorstore()
-    retriever = db.as_retriever()
+    vectorstore = get_vectorstore()
+    retriever = vectorstore.as_retriever(search_kwargs={'k': 3})
 
-    # Custom prompt
     CUSTOM_PROMPT_TEMPLATE = """
-    Use the pieces of information provided in the context to answer the user's question.
-    If you don't know the answer, say you don't know. Do not make up an answer.
-    Do not provide anything outside the given context.
+    Use ONLY the pieces of information provided in the context below to answer the user's question.
+    If you do not know the answer based on the context, respond with "I do not know."
+    Do not provide any information outside the provided context.
 
     Context:
     {context}
@@ -51,20 +53,22 @@ def main():
     Question:
     {question}
 
-    Start your answer directly, no small talk.
+    Start your answer directly.
     """
     prompt_template = set_custom_prompt(CUSTOM_PROMPT_TEMPLATE)
 
-    # Create RetrievalQA chain with custom prompt
     qa_chain = RetrievalQA.from_chain_type(
         llm=llm,
+        chain_type="stuff",
         retriever=retriever,
-        return_source_documents=False,
-        chain_type_kwargs={"prompt": prompt_template}
+        return_source_documents=True,
+        chain_type_kwargs={'prompt': prompt_template}
     )
 
+    # ----------------- Chat UI -----------------
     if 'messages' not in st.session_state:
         st.session_state.messages = []
+
     for message in st.session_state.messages:
         st.chat_message(message['role']).markdown(message['content'])
 
@@ -74,11 +78,28 @@ def main():
         st.chat_message('user').markdown(prompt)
         st.session_state.messages.append({'role': 'user', 'content': prompt})
 
-        with st.spinner("Thinking..."):
-            response = qa_chain.invoke({'query': prompt})['result']
+        with st.spinner("MediBot is thinking..."):
+            try:
+                response = qa_chain.invoke({'query': prompt})
+                result = response["result"]
+                source_docs = response.get("source_documents", [])
 
-        st.chat_message('assistant').markdown(response)
-        st.session_state.messages.append({'role': 'assistant', 'content': response})
+                st.chat_message('assistant').markdown(result)
+                st.session_state.messages.append({'role': 'assistant', 'content': result})
+
+                if source_docs:
+                    with st.expander("📂 Show Sources Used in Answer"):
+                        for idx, doc in enumerate(source_docs):
+                            snippet = doc.page_content[:500].strip().replace('\n', ' ')
+                            st.markdown(f"[{idx + 1}] Source Snippet:** {snippet}...")
+                            if doc.metadata:
+                                st.markdown(f"*Metadata:* {doc.metadata}")
+                            st.markdown("---")
+                else:
+                    st.info("No sources were retrieved for this answer.")
+
+            except Exception as e:
+                st.error(f"An error occurred: {str(e)}")
 
 if __name__ == "__main__":
     main()
